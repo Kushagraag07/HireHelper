@@ -16,7 +16,8 @@ import {
 } from 'lucide-react'
 import { AuthContext } from '@/context/AuthContext'
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000'
+// Use same-origin proxy via Next.js rewrites. Ignore any external base URL.
+const API = ''
 
 export default function AuthPage() {
   const router = useRouter()
@@ -58,7 +59,7 @@ const { setUser } = useContext(AuthContext)
 
     setLoading(true); setError(''); setSuccess('')
     try {
-      const endpoint = isLogin ? '/auth/login' : '/auth/signup'
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup'
       const payload  = isLogin
         ? { email: formData.email, password: formData.password }
         : { email: formData.email, password: formData.password, name: formData.name }

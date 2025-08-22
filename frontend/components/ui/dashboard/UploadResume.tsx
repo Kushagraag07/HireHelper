@@ -201,7 +201,7 @@ ${additionalNotes ? `\nAdditional Notes: ${additionalNotes}` : ''}`
                   <Users className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-gray-900">HR Interview AI</h1>
+                  <h1 className="text-xl font-semibold text-gray-900">HireHelper</h1>
                   <p className="text-sm text-gray-500">Welcome, {user.name}</p>
                 </div>
               </div>

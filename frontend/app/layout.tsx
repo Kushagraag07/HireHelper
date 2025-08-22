@@ -2,7 +2,7 @@ import './globals.css'
 import { AuthProvider } from '@/context/AuthContext'
 
 export const metadata = {
-  title: 'InterviewAI',
+  title: 'HireHelper',
   description: 'AI-Powered Interview Platform'
 }
 

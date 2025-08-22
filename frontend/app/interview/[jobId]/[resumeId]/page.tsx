@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 
 interface Message {
@@ -35,6 +36,7 @@ export default function InterviewPage({
   params: Promise<{ jobId: string; resumeId: string }>;
 }) {
   // Interview state
+  const router = useRouter();
   const [jobId, setJobId] = useState("");
   const [resumeId, setResumeId] = useState("");
   const [ws, setWs] = useState<WebSocket | null>(null);
@@ -220,14 +222,20 @@ export default function InterviewPage({
       screenShareRef.current = screenStream;
       setIsScreenSharing(true);
       setError(null); // Clear any previous errors
-      ws?.send(JSON.stringify({ type: "screen-share", action: "started" }));
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "screen-share", action: "started" }));
+      }
       screenStream.getVideoTracks()[0].onended = () => {
         setIsScreenSharing(false);
-        ws?.send(JSON.stringify({ type: "screen-share", action: "ended" }));
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "screen-share", action: "ended" }));
+        }
       };
     } catch {
       setError("Screen sharing was declined. For proctoring, please share your screen.");
-      ws?.send(JSON.stringify({ type: "screen-share", action: "declined" }));
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "screen-share", action: "declined" }));
+      }
     }
   };
 
@@ -251,9 +259,8 @@ export default function InterviewPage({
 
   useEffect(() => {
     if (!jobId || !resumeId) return;
-    const socket = new WebSocket(
-      `${process.env.NEXT_PUBLIC_WS_URL}/ws/interview/${jobId}/${resumeId}`
-    );
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const socket = new WebSocket(`${protocol}://${window.location.host}/api/ws/interview/${jobId}/${resumeId}`);
 
     socket.onopen = () => {
       setIsConnected(true);
@@ -370,6 +377,20 @@ export default function InterviewPage({
   const timerMMSS = `${String(Math.floor(timerSec / 60)).padStart(2, "0")}:${String(timerSec % 60).padStart(2, "0")}`;
 
   // --- UI ---
+  // Auto-stop screen share when interview ends
+  useEffect(() => {
+    if ((status.is_complete || interviewEndedByProctor) && isScreenSharing) {
+      try {
+        screenShareRef.current?.getTracks().forEach((t) => t.stop());
+      } catch {}
+      setIsScreenSharing(false);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: "screen-share", action: "ended" })); } catch {}
+      }
+    }
+    // eslint-disable-next-line
+  }, [status.is_complete, interviewEndedByProctor]);
+
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       {/* Enhanced Header */}
@@ -727,7 +748,7 @@ export default function InterviewPage({
             
             <div className="mt-8">
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => router.push('/interview/over')}
                 className="inline-flex items-center px-6 py-3 rounded-xl font-medium bg-gradient-to-r from-slate-600 to-slate-700 text-white hover:from-slate-700 hover:to-slate-800 transition-all duration-200 shadow-lg"
               >
                 <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">

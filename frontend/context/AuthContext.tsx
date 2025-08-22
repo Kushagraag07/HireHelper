@@ -31,10 +31,11 @@ export const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [ready, setReady] = useState(false)
-  const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000'
+  // Use same-origin proxy via Next.js rewrites
+  const API = ''
 
   useEffect(() => {
-    fetch(`${API}/auth/me`, { credentials: 'include' })
+    fetch(`${API}/api/auth/me`, { credentials: 'include' })
       .then(async res => {
         if (!res.ok) throw new Error('unauthenticated')
         const contentType = res.headers.get('content-type') || ''

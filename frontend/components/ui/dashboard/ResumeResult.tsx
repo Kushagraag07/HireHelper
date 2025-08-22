@@ -171,10 +171,11 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
       ? job.scoredResumes.reduce((sum, r) => sum + r.score, 0) / job.scoredResumes.length
       : 0
 
+  // Align distribution buckets with displayed labels (percent scale):
   const scoreDistribution = {
-    high: job.scoredResumes.filter(r => r.score >= 8).length,
-    medium: job.scoredResumes.filter(r => r.score >= 6 && r.score < 8).length,
-    low: job.scoredResumes.filter(r => r.score < 6).length
+    high: job.scoredResumes.filter(r => r.score >= 80).length,
+    medium: job.scoredResumes.filter(r => r.score >= 60 && r.score < 80).length,
+    low: job.scoredResumes.filter(r => r.score < 60).length
   }
 
   const formatDate = (dateString: string) =>
@@ -296,7 +297,7 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                   <Users className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-semibold text-gray-900">HR Interview AI</h1>
+                  <h1 className="text-xl font-semibold text-gray-900">HireHelper</h1>
                   <p className="text-sm text-gray-500">Welcome, {user.name}</p>
                 </div>
               </div>
