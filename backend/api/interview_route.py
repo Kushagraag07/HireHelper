@@ -300,6 +300,7 @@ Respond with EXACTLY one word: “Yes” or “No”, and then in 1–2 sentence
     # 4) Send back over the WebSocket
     payload = {
         "text":            "⏰ Interview completed! Here's your comprehensive assessment:",
+        "type":            "interview_complete",
         "summary":         summary,
         "average_score":   avg,
         "stage_breakdown": stage_breakdown,
@@ -308,6 +309,8 @@ Respond with EXACTLY one word: “Yes” or “No”, and then in 1–2 sentence
         payload["recommendation"] = recommendation
 
     await websocket.send_json(payload)
+    # Give the client a moment to process the completion message
+    await asyncio.sleep(1)
     await websocket.close()
 
 
@@ -390,7 +393,69 @@ async def interview_ws(websocket: WebSocket, job_id: str, resume_id: str):
         })
 
     try:
-        # Initial question
+        # First, ask for screen sharing
+        await websocket.send_json({
+            "text": "Welcome to your AI interview! Before we begin, please start screen sharing for proctoring purposes. Click the 'Share Screen' button below.",
+            "type": "screen_share_request",
+            "question_count": 0,
+            "max_questions": session.max_questions,
+            "current_stage": "setup",
+            "stage_progress": "0/1"
+        })
+        
+        # Wait for screen sharing confirmation
+        screen_shared = False
+        while not screen_shared:
+            msg = await websocket.receive_json()
+            
+            # Handle screen sharing events
+            if msg.get("type") == "screen-share":
+                if msg.get("action") == "started":
+                    screen_shared = True
+                    await websocket.send_json({
+                        "text": "Perfect! Screen sharing is active. Now let's begin your interview. I'll ask you questions and you can respond using voice or text.",
+                        "type": "screen_share_confirmed",
+                        "question_count": 0,
+                        "max_questions": session.max_questions,
+                        "current_stage": session.interview_stages[session.current_stage]["name"],
+                        "stage_progress": f"{session.current_stage+1}/{len(session.interview_stages)}"
+                    })
+                    break
+                elif msg.get("action") == "declined":
+                    await websocket.send_json({
+                        "text": "Screen sharing is required for this interview. Please enable screen sharing to continue.",
+                        "type": "screen_share_required",
+                        "question_count": 0,
+                        "max_questions": session.max_questions,
+                        "current_stage": "setup",
+                        "stage_progress": "0/1"
+                    })
+                elif msg.get("action") == "ended":
+                    screen_shared = False
+                    await websocket.send_json({
+                        "text": "Screen sharing was stopped. Please restart screen sharing to continue the interview.",
+                        "type": "screen_share_required",
+                        "question_count": 0,
+                        "max_questions": session.max_questions,
+                        "current_stage": "setup",
+                        "stage_progress": "0/1"
+                    })
+            
+            # Handle telemetry events during setup
+            elif msg.get("type") in {"tab-switch", "gaze", "object-detect", "not-looking"}:
+                field = {
+                    "tab-switch": "tabEvents",
+                    "gaze": "gazeData",
+                    "object-detect": "objectEvents",
+                    "not-looking": "warningEvents"
+                }[msg["type"]]
+                interview_sessions.update_one(
+                    {"_id": session_id},
+                    {"$push": {field: {**msg, "timestamp": datetime.utcnow()}}}
+                )
+                continue
+        
+        # Now send the initial question
         last_q = await session.get_response()
         await send_response(last_q)
 

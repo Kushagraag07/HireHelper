@@ -75,6 +75,36 @@ export default function InterviewPage({
     if (videoRef.current && videoStream) videoRef.current.srcObject = videoStream;
   }, [videoStream]);
 
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup all resources when component unmounts
+      cleanupVoice();
+      
+      if (videoStream) {
+        try {
+          videoStream.getTracks().forEach((track) => track.stop());
+        } catch {}
+      }
+      
+      if (screenShareRef.current) {
+        try {
+          screenShareRef.current.getTracks().forEach((track) => track.stop());
+        } catch {}
+      }
+      
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.close();
+        } catch {}
+      }
+    };
+  }, [videoStream, ws]);
+
   // --- Deepgram Voice Input: FIXED! ---
   // const dgClientRef = useRef<ReturnType<typeof createClient> | null>(null);
   const dgConnRef = useRef<DeepgramConnection | null>(null);
@@ -103,28 +133,32 @@ export default function InterviewPage({
   };
   
   const startVoice = async () => {
-    // Check if screen sharing is active first
-    if (!isScreenSharing) {
-      setError("Please start screen sharing first before using voice input.");
-      return;
-    }
-    
     cleanupVoice();
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
   
     setIsVoiceActive(true);
     setLiveTranscript("");
     bufferRef.current = "";
+    setError(null); // Clear any previous errors
   
     // 🔥 Fetch a NEW Deepgram token EVERY TIME!
     let token;
     try {
       const tokenRes = await fetch("/api/deepgram-token");
+      if (!tokenRes.ok) {
+        throw new Error(`HTTP ${tokenRes.status}: ${tokenRes.statusText}`);
+      }
       const tokenJson = await tokenRes.json();
-      if (!tokenJson.token) throw new Error("No Deepgram token");
+      if (tokenJson.error) {
+        throw new Error(tokenJson.error);
+      }
+      if (!tokenJson.token) {
+        throw new Error("No Deepgram token received from server");
+      }
       token = tokenJson.token;
     } catch (err : unknown) {
-      setError("Could not fetch Deepgram token" + err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(`Could not fetch Deepgram token: ${errorMsg}`);
       setIsVoiceActive(false);
       return;
     }
@@ -135,9 +169,22 @@ export default function InterviewPage({
     // Setup mic
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Check if microphone permission is granted
+      const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (permission.state === 'denied') {
+        throw new Error("Microphone permission denied. Please enable microphone access in your browser settings.");
+      }
+      
+      stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
     } catch (err : unknown) {
-      setError("Could not access microphone" + err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(`Could not access microphone: ${errorMsg}`);
       setIsVoiceActive(false);
       return;
     }
@@ -152,10 +199,14 @@ export default function InterviewPage({
     });
     dgConnRef.current = dgConn;
   
-    dgConn.on(LiveTranscriptionEvents.Open, () => recorder.start(250));
+    dgConn.on(LiveTranscriptionEvents.Open, () => {
+      console.log("Deepgram connection opened, starting recorder...");
+      recorder.start(250);
+    });
   
     dgConn.on(LiveTranscriptionEvents.Transcript, (data: DeepgramTranscriptData) => {
       const txt = data.channel.alternatives[0]?.transcript.trim();
+      console.log("Deepgram transcript received:", { text: txt, isFinal: data.is_final });
       if (txt && data.is_final) {
         bufferRef.current += (bufferRef.current ? " " : "") + txt;
         setLiveTranscript(bufferRef.current);
@@ -185,6 +236,8 @@ export default function InterviewPage({
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [proctorWarning, setProctorWarning] = useState<string | null>(null);
   const [interviewEndedByProctor, setInterviewEndedByProctor] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(3);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -239,13 +292,13 @@ export default function InterviewPage({
     }
   };
 
-  // Prompt for screen share on mount if not already sharing
-  useEffect(() => {
-    if (!isScreenSharing && isConnected && !status.is_complete && !interviewEndedByProctor) {
-      startScreenShare();
-    }
-    // eslint-disable-next-line
-  }, [isConnected, isScreenSharing, status.is_complete, interviewEndedByProctor]);
+  // Remove automatic screen share prompt - now handled by AI
+  // useEffect(() => {
+  //   if (!isScreenSharing && isConnected && !status.is_complete && !interviewEndedByProctor) {
+  //     startScreenShare();
+  //   }
+  //   // eslint-disable-next-line
+  // }, [isConnected, isScreenSharing, status.is_complete, interviewEndedByProctor]);
 
   // --- WebSocket Lifecycle ---
   useEffect(() => {
@@ -275,16 +328,63 @@ export default function InterviewPage({
           setIsLoading(false);
           return;
         }
-        const { text, question_count, max_questions } = data;
-        setStatus({
-          question_count,
-          max_questions: max_questions || status.max_questions,
-          is_complete: question_count >= (max_questions || status.max_questions),
-        });
-        setMessages((ms) => [
-          ...ms,
-          { sender: "ai", text, timestamp: new Date() },
-        ]);
+        
+        const { text, question_count, max_questions, type } = data;
+        
+        // Handle different message types
+        if (type === "screen_share_request") {
+          // AI is asking for screen sharing - don't add to messages yet
+          setStatus({
+            question_count: 0,
+            max_questions: max_questions || status.max_questions,
+            is_complete: false,
+          });
+          // Don't add this to messages - it's just a setup instruction
+        } else if (type === "screen_share_confirmed") {
+          // Screen sharing confirmed - add to messages
+          setStatus({
+            question_count: 0,
+            max_questions: max_questions || status.max_questions,
+            is_complete: false,
+          });
+          setMessages((ms) => [
+            ...ms,
+            { sender: "ai", text, timestamp: new Date() },
+          ]);
+        } else if (type === "screen_share_required") {
+          // Screen sharing required again - add to messages
+          setStatus({
+            question_count: 0,
+            max_questions: max_questions || status.max_questions,
+            is_complete: false,
+          });
+          setMessages((ms) => [
+            ...ms,
+            { sender: "ai", text, timestamp: new Date() },
+          ]);
+        } else if (type === "interview_complete") {
+          // Mark interview complete so cleanup + redirect can run
+          setStatus({
+            question_count: max_questions || status.max_questions,
+            max_questions: max_questions || status.max_questions,
+            is_complete: true,
+          });
+          setMessages((ms) => [
+            ...ms,
+            { sender: "ai", text, timestamp: new Date() },
+          ]);
+        } else {
+          // Regular question or response
+          setStatus({
+            question_count,
+            max_questions: max_questions || status.max_questions,
+            is_complete: question_count >= (max_questions || status.max_questions),
+          });
+          setMessages((ms) => [
+            ...ms,
+            { sender: "ai", text, timestamp: new Date() },
+          ]);
+        }
         setIsLoading(false);
       } catch {
         setError("Invalid response from server");
@@ -331,12 +431,6 @@ export default function InterviewPage({
   const sendAnswer = () => {
     if (interviewEndedByProctor) return;
     
-    // Check if screen sharing is active first
-    if (!isScreenSharing) {
-      setError("Please start screen sharing first before sending messages.");
-      return;
-    }
-    
     if (!ws || ws.readyState !== WebSocket.OPEN || !input.trim() || isLoading)
       return;
     setIsLoading(true);
@@ -377,16 +471,49 @@ export default function InterviewPage({
   const timerMMSS = `${String(Math.floor(timerSec / 60)).padStart(2, "0")}:${String(timerSec % 60).padStart(2, "0")}`;
 
   // --- UI ---
-  // Auto-stop screen share when interview ends
+  // Auto-stop screen share and cleanup when interview ends
   useEffect(() => {
-    if ((status.is_complete || interviewEndedByProctor) && isScreenSharing) {
-      try {
-        screenShareRef.current?.getTracks().forEach((t) => t.stop());
-      } catch {}
-      setIsScreenSharing(false);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: "screen-share", action: "ended" })); } catch {}
+    if (status.is_complete || interviewEndedByProctor) {
+      // Cleanup screen sharing
+      if (isScreenSharing) {
+        try {
+          screenShareRef.current?.getTracks().forEach((t) => t.stop());
+        } catch {}
+        setIsScreenSharing(false);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: "screen-share", action: "ended" })); } catch {}
+        }
       }
+      
+      // Cleanup voice recording
+      cleanupVoice();
+      
+      // Cleanup video stream
+      if (videoStream) {
+        try {
+          videoStream.getTracks().forEach((track) => track.stop());
+        } catch {}
+        setVideoStream(null);
+      }
+      
+      // Stop TTS if speaking
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      // Auto-redirect countdown
+      let countdown = 3;
+      const countdownTimer = setInterval(() => {
+        countdown--;
+        setRedirectCountdown(countdown);
+        if (countdown <= 0) {
+          clearInterval(countdownTimer);
+          setIsRedirecting(true);
+          router.replace('/');
+        }
+      }, 1000);
+      
+      return () => clearInterval(countdownTimer);
     }
     // eslint-disable-next-line
   }, [status.is_complete, interviewEndedByProctor]);
@@ -491,19 +618,19 @@ export default function InterviewPage({
               <div className="flex space-x-3">
                 <button
                   onClick={startVoice}
-                  disabled={!isConnected || isVoiceActive || interviewEndedByProctor || !isScreenSharing}
-                  className={`inline-flex items-center px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg ${
+                  disabled={!isConnected || isVoiceActive || interviewEndedByProctor || !isScreenSharing || messages.length === 0}
+                  className={`inline-flex items-center px-6 py-3 rounded-xl font-medium text-base transition-all duration-200 shadow-lg ${
                     isVoiceActive 
-                      ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-red-200' 
-                      : !isScreenSharing
+                      ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-red-200 animate-pulse' 
+                      : !isScreenSharing || messages.length === 0
                       ? 'bg-gradient-to-r from-slate-300 to-slate-400 text-slate-500 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
                   }`}
                 >
-                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.00z" clipRule="evenodd" />
                   </svg>
-                  {isVoiceActive ? 'Recording...' : !isScreenSharing ? 'Start Screen Share First' : 'Start Voice'}
+                  {isVoiceActive ? 'Recording...' : !isScreenSharing || messages.length === 0 ? 'Waiting for Interview...' : 'Speak Now'}
                 </button>
                 
                 <button
@@ -520,12 +647,16 @@ export default function InterviewPage({
                 <button
                   onClick={startScreenShare}
                   disabled={isScreenSharing || interviewEndedByProctor}
-                  className="inline-flex items-center px-4 py-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all duration-200 shadow-lg"
+                  className={`inline-flex items-center px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 shadow-lg ${
+                    messages.length === 0 && !isScreenSharing
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-lg animate-pulse'
+                      : 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700'
+                  } disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed`}
                 >
                   <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M3 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1H4a1 1 0 01-1-1v-3zM12 4a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1V4zM12 13a1 1 0 011-1h3a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-3z" clipRule="evenodd" />
                   </svg>
-                  {isScreenSharing ? 'Sharing...' : 'Share Screen'}
+                  {isScreenSharing ? 'Sharing...' : messages.length === 0 ? 'Start Interview Setup' : 'Share Screen'}
                 </button>
               </div>
               
@@ -561,8 +692,8 @@ export default function InterviewPage({
         </div>
       )}
 
-      {/* Screen Share Required Alert */}
-      {!isScreenSharing && isConnected && !status.is_complete && !interviewEndedByProctor && (
+      {/* Screen Share Required Alert - Only show when AI requests it */}
+      {!isScreenSharing && isConnected && !status.is_complete && !interviewEndedByProctor && messages.length === 0 && (
         <div className="mx-auto my-6 max-w-4xl px-8">
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-400 rounded-xl p-6 shadow-lg">
             <div className="flex items-start">
@@ -570,9 +701,9 @@ export default function InterviewPage({
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
               <div className="flex-1">
-                <div className="text-blue-800 font-medium mb-2">Screen Sharing Required</div>
+                <div className="text-blue-800 font-medium mb-2">Welcome to Your AI Interview!</div>
                 <div className="text-blue-700 text-sm">
-                  Please start screen sharing to begin the interview. This is required for proctoring purposes.
+                  The AI interviewer will guide you through the setup process. Please wait for instructions.
                 </div>
               </div>
             </div>
@@ -651,7 +782,7 @@ export default function InterviewPage({
             <div className="flex-1 relative">
               <textarea
                 className={`w-full border-2 rounded-2xl px-6 py-4 resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white/80 backdrop-blur-sm shadow-lg placeholder-slate-400 ${
-                  !isScreenSharing 
+                  !isScreenSharing || messages.length === 0
                     ? 'border-slate-300 bg-slate-50 cursor-not-allowed' 
                     : 'border-slate-200'
                 }`}
@@ -663,9 +794,9 @@ export default function InterviewPage({
                     sendAnswer();
                   }
                 }}
-                placeholder={!isScreenSharing ? "Please start screen sharing first..." : "Type your response or use voice input..."}
+                placeholder={!isScreenSharing || messages.length === 0 ? "Waiting for AI interviewer..." : "Type your response or use voice input..."}
                 rows={3}
-                disabled={!isConnected || isLoading || interviewEndedByProctor || !isScreenSharing}
+                disabled={!isConnected || isLoading || interviewEndedByProctor || !isScreenSharing || messages.length === 0}
               />
               {input.length > 0 && (
                 <div className="absolute bottom-2 right-2 text-xs text-slate-400">
@@ -675,7 +806,7 @@ export default function InterviewPage({
             </div>
             <button
               onClick={sendAnswer}
-              disabled={!input.trim() || !isConnected || isLoading || interviewEndedByProctor || !isScreenSharing}
+              disabled={!input.trim() || !isConnected || isLoading || interviewEndedByProctor || !isScreenSharing || messages.length === 0}
               className="inline-flex items-center px-8 py-4 rounded-2xl font-semibold bg-gradient-to-r from-blue-600 to-indigo-700 text-white hover:from-blue-700 hover:to-indigo-800 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
             >
               {isLoading ? (
@@ -747,15 +878,20 @@ export default function InterviewPage({
             )}
             
             <div className="mt-8">
-              <button
-                onClick={() => router.push('/interview/over')}
-                className="inline-flex items-center px-6 py-3 rounded-xl font-medium bg-gradient-to-r from-slate-600 to-slate-700 text-white hover:from-slate-700 hover:to-slate-800 transition-all duration-200 shadow-lg"
-              >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                </svg>
-                Return to Dashboard
-              </button>
+              <div className="space-y-4">
+                <button
+                  onClick={() => {
+                    setIsRedirecting(true);
+                    router.replace('/interview/over');
+                  }}
+                  className="inline-flex items-center px-6 py-3 rounded-xl font-medium bg-gradient-to-r from-slate-600 to-slate-700 text-white hover:from-slate-700 hover:to-slate-800 transition-all duration-200 shadow-lg"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                  </svg>
+                  Return to Dashboard Now
+                </button>
+              </div>
             </div>
           </div>
         </div>
