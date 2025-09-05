@@ -89,7 +89,11 @@ const UploadResume: React.FC<UploadResumeProps> = ({
   onBack,
   onSubmit
 }) => {
+<<<<<<< HEAD
   const [newJobDescription, setNewJobDescription] = useState('')
+=======
+  // const [newJobDescription, setNewJobDescription] = useState('') // Removed unused variable
+>>>>>>> df75f90 (face detection testing)
   const [jobTitle, setJobTitle] = useState('')
   const [jobType, setJobType] = useState('')
   const [duration, setDuration] = useState('')
@@ -111,7 +115,11 @@ const UploadResume: React.FC<UploadResumeProps> = ({
       try {
         const raw = localStorage.getItem('draftJobForm')
         if (raw) {
+<<<<<<< HEAD
           const draft = JSON.parse(raw) as any
+=======
+          const draft = JSON.parse(raw) as Record<string, string>
+>>>>>>> df75f90 (face detection testing)
           setJobTitle(draft.jobTitle || '')
           setJobType(draft.jobType || '')
           setDuration(draft.duration || '')
@@ -119,7 +127,11 @@ const UploadResume: React.FC<UploadResumeProps> = ({
           setExperienceRequired(draft.experienceRequired || '')
           setBasicRequirements(draft.basicRequirements || '')
           setAdditionalNotes(draft.additionalNotes || '')
+<<<<<<< HEAD
           setNewJobDescription(draft.description || '')
+=======
+          // setNewJobDescription(draft.description || '') // Removed unused variable
+>>>>>>> df75f90 (face detection testing)
           localStorage.removeItem('draftJobForm')
         }
       } catch {}

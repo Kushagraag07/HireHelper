@@ -85,6 +85,10 @@ interface Resume {
   resumeId: string
   interviewDone?: boolean
   sessionId?: string
+<<<<<<< HEAD
+=======
+  interviewScore?: number
+>>>>>>> df75f90 (face detection testing)
 }
 
 interface Job {
@@ -111,11 +115,21 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
   onBack,
   onAddMoreResumes
 }) => {
+<<<<<<< HEAD
   type SortOption = 'score' | 'name'
   type ScoreFilter = 'all' | 'high' | 'medium' | 'low';
   // Search, filter, sort, selection
   const [searchTerm, setSearchTerm] = useState('')
   const [scoreFilter, setScoreFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
+=======
+  type SortOption = 'score' | 'name' | 'interviewScore'
+  type ScoreFilter = 'all' | 'high' | 'medium' | 'low';
+  type InterviewFilter = 'all' | 'completed' | 'pending' | 'not-attended';
+  // Search, filter, sort, selection
+  const [searchTerm, setSearchTerm] = useState('')
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
+  const [interviewFilter, setInterviewFilter] = useState<'all' | 'completed' | 'pending' | 'not-attended'>('all')
+>>>>>>> df75f90 (face detection testing)
   const [sortBy, setSortBy] = useState<SortOption>('score')
   const [selectedResumes, setSelectedResumes] = useState<Set<string>>(new Set())
 
@@ -131,6 +145,14 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
     errors: string[]
   } | null>(null)
 
+<<<<<<< HEAD
+=======
+  // Resume viewing and downloading state
+  const [isViewingResume, setIsViewingResume] = useState(false)
+  const [isDownloadingResume, setIsDownloadingResume] = useState(false)
+  const [currentResumeId, setCurrentResumeId] = useState<string | null>(null)
+
+>>>>>>> df75f90 (face detection testing)
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-600 bg-green-100'
     if (score >= 60) return 'text-yellow-600 bg-yellow-100'
@@ -150,19 +172,42 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
         resume.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         resume.email.toLowerCase().includes(searchTerm.toLowerCase())
 
+<<<<<<< HEAD
         const matchesFilter =
+=======
+      const matchesScoreFilter =
+>>>>>>> df75f90 (face detection testing)
         scoreFilter === 'all' ||
         (scoreFilter === 'high' && resume.score >= 80) ||
         (scoreFilter === 'medium' && resume.score >= 60 && resume.score < 80) ||
         (scoreFilter === 'low' && resume.score < 60)
+<<<<<<< HEAD
       
 
       return matchesSearch && matchesFilter
+=======
+
+      const matchesInterviewFilter =
+        interviewFilter === 'all' ||
+        (interviewFilter === 'completed' && resume.interviewDone && resume.interviewScore !== undefined) ||
+        (interviewFilter === 'pending' && resume.interviewDone && resume.interviewScore === undefined) ||
+        (interviewFilter === 'not-attended' && !resume.interviewDone)
+
+      return matchesSearch && matchesScoreFilter && matchesInterviewFilter
+>>>>>>> df75f90 (face detection testing)
     })
     .sort((a, b) => {
       if (sortBy === 'score') {
         return b.score - a.score
       }
+<<<<<<< HEAD
+=======
+      if (sortBy === 'interviewScore') {
+        const aScore = a.interviewScore ?? -1
+        const bScore = b.interviewScore ?? -1
+        return bScore - aScore
+      }
+>>>>>>> df75f90 (face detection testing)
       return a.name.localeCompare(b.name)
     })
 
@@ -171,6 +216,15 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
       ? job.scoredResumes.reduce((sum, r) => sum + r.score, 0) / job.scoredResumes.length
       : 0
 
+<<<<<<< HEAD
+=======
+  const completedInterviews = job.scoredResumes.filter(r => r.interviewDone && r.interviewScore !== undefined)
+  const averageInterviewScore =
+    completedInterviews.length > 0
+      ? completedInterviews.reduce((sum, r) => sum + (r.interviewScore || 0), 0) / completedInterviews.length
+      : 0
+
+>>>>>>> df75f90 (face detection testing)
   // Align distribution buckets with displayed labels (percent scale):
   const scoreDistribution = {
     high: job.scoredResumes.filter(r => r.score >= 80).length,
@@ -178,6 +232,15 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
     low: job.scoredResumes.filter(r => r.score < 60).length
   }
 
+<<<<<<< HEAD
+=======
+  const interviewDistribution = {
+    completed: completedInterviews.length,
+    pending: job.scoredResumes.filter(r => r.interviewDone && r.interviewScore === undefined).length,
+    notAttended: job.scoredResumes.filter(r => !r.interviewDone).length
+  }
+
+>>>>>>> df75f90 (face detection testing)
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -282,6 +345,79 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
     
   }
 
+<<<<<<< HEAD
+=======
+  // Handle viewing resume
+  const handleViewResume = async (resume: Resume) => {
+    try {
+      setIsViewingResume(true)
+      setCurrentResumeId(resume.resumeId)
+      
+      // Fetch the resume file from the backend
+      const response = await fetch(`${API_BASE}/resume/${resume.resumeId}`, {
+        credentials: 'include',
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch resume')
+      }
+      
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      
+      // Open the resume in a new tab
+      window.open(url, '_blank')
+      
+      // Clean up the URL after a delay
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      
+    } catch (error) {
+      console.error('Error viewing resume:', error)
+      alert('Failed to view resume. Please try again.')
+    } finally {
+      setIsViewingResume(false)
+      setCurrentResumeId(null)
+    }
+  }
+
+  // Handle downloading resume
+  const handleDownloadResume = async (resume: Resume) => {
+    try {
+      setIsDownloadingResume(true)
+      setCurrentResumeId(resume.resumeId)
+      
+      const response = await fetch(`${API_BASE}/resume/${resume.resumeId}/download`, {
+        credentials: 'include',
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to download resume')
+      }
+      
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      
+      // Create a temporary link and trigger download
+      const link = document.createElement('a')
+      link.href = url
+      link.download = resume.filename || `${resume.name}_resume.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      // Clean up the URL
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      
+    } catch (error) {
+      console.error('Error downloading resume:', error)
+      alert('Failed to download resume. Please try again.')
+    } finally {
+      setIsDownloadingResume(false)
+      setCurrentResumeId(null)
+    }
+  }
+
+>>>>>>> df75f90 (face detection testing)
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -384,7 +520,11 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
         )}
 
         {/* Job Info & Stats */}
+<<<<<<< HEAD
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+=======
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
+>>>>>>> df75f90 (face detection testing)
           <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Job Description</h2>
@@ -471,6 +611,18 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                 </div>
               </div>
               <div className="flex justify-between">
+<<<<<<< HEAD
+=======
+                <span className="text-sm text-gray-600">Avg Interview Score</span>
+                <div className="flex items-center space-x-2">
+                  <Star className="w-4 h-4 text-blue-500" />
+                  <span className="font-medium">
+                    {completedInterviews.length > 0 ? averageInterviewScore.toFixed(1) : 'N/A'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex justify-between">
+>>>>>>> df75f90 (face detection testing)
                 <span className="text-sm text-gray-600">Selected</span>
                 <span className="font-medium text-green-600">{selectedResumes.size}</span>
               </div>
@@ -500,6 +652,27 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
               </div>
             </div>
           </div>
+<<<<<<< HEAD
+=======
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Interview Status</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-green-600">Completed</span>
+                <span className="font-medium">{interviewDistribution.completed}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-yellow-600">Processing</span>
+                <span className="font-medium">{interviewDistribution.pending}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Not Attended</span>
+                <span className="font-medium">{interviewDistribution.notAttended}</span>
+              </div>
+            </div>
+          </div>
+>>>>>>> df75f90 (face detection testing)
         </div>
 
         {/* Filters & Search */}
@@ -526,6 +699,19 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                 <option value="medium">Good (6-8)</option>
                 <option value="low">Needs Review (&lt;6)</option>
               </select>
+<<<<<<< HEAD
+=======
+              <select
+                value={interviewFilter}
+                onChange={e => setInterviewFilter(e.target.value as InterviewFilter)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">All Interviews</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Processing</option>
+                <option value="not-attended">Not Attended</option>
+              </select>
+>>>>>>> df75f90 (face detection testing)
             </div>
 
             <div className="flex items-center space-x-4">
@@ -536,7 +722,12 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                   onChange={e => setSortBy(e.target.value as SortOption)}
                   className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
+<<<<<<< HEAD
                   <option value="score">Score</option>
+=======
+                  <option value="score">Resume Score</option>
+                  <option value="interviewScore">Interview Score</option>
+>>>>>>> df75f90 (face detection testing)
                   <option value="name">Name</option>
                 </select>
               </div>
@@ -588,6 +779,12 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                     Status
                   </th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+<<<<<<< HEAD
+=======
+                    Interview Score
+                  </th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+>>>>>>> df75f90 (face detection testing)
                     File
                   </th>
                   <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -641,11 +838,33 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                       </span>
                     </td>
                     <td className="px-6 py-4">
+<<<<<<< HEAD
+=======
+                      {resume.interviewDone && resume.interviewScore !== undefined ? (
+                        <div className="flex items-center space-x-2">
+                          <div
+                            className={`px-2 py-1 rounded-full text-xs font-medium ${getScoreColor(
+                              resume.interviewScore
+                            )}`}
+                          >
+                            {resume.interviewScore.toFixed(1)}
+                          </div>
+                          <Star className="w-4 h-4 text-yellow-500" />
+                        </div>
+                      ) : resume.interviewDone ? (
+                        <span className="text-gray-500 text-sm">Processing...</span>
+                      ) : (
+                        <span className="text-gray-400 text-sm">Not attended</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+>>>>>>> df75f90 (face detection testing)
                       <div className="text-sm text-gray-500">{resume.filename}</div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end space-x-2">
                         <button
+<<<<<<< HEAD
                           className="text-blue-600 hover:text-blue-800 p-1 rounded"
                           title="View Resume"
                         >
@@ -662,6 +881,30 @@ const ResumeResults: React.FC<ResumeResultsProps> = ({
                           title="Contact Candidate"
                         >
                           <Mail className="w-4 h-4" />
+=======
+                          onClick={() => handleViewResume(resume)}
+                          disabled={isViewingResume && currentResumeId === resume.resumeId}
+                          className="text-blue-600 hover:text-blue-800 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          title="View Resume"
+                        >
+                          {isViewingResume && currentResumeId === resume.resumeId ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleDownloadResume(resume)}
+                          disabled={isDownloadingResume && currentResumeId === resume.resumeId}
+                          className="text-green-600 hover:text-green-800 p-1 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          title="Download Resume"
+                        >
+                          {isDownloadingResume && currentResumeId === resume.resumeId ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+>>>>>>> df75f90 (face detection testing)
                         </button>
                       </div>
                     </td>
