@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useContext } from 'react'
+import React, { useState, useEffect, useContext, useCallback } from 'react'
 import { Users, Sparkles, Shield,  Zap, Brain, Target } from 'lucide-react'
 import { AuthContext } from '@/context/AuthContext'
 import JobsGrid from '@/components/ui/dashboard/Jobsgrid'
@@ -19,6 +19,7 @@ interface Resume {
   // ← new:
   interviewDone?:  boolean
   sessionId?:      string
+  interviewScore?: number
 }
 
 interface Job {
@@ -40,7 +41,7 @@ const HRInterviewApp = () => {
   const [loading, setLoading] = useState(true)
 
   // Fetch jobs from API
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     if (!user) return
 
     try {
@@ -60,7 +61,7 @@ const HRInterviewApp = () => {
       console.log('🏁 fetchJobs done, clearing loading')
       setLoading(false)
     }
-  }
+  }, [user])
 
   // Create new job with resumes
   const createJob = async (description: string, files: File[]) => {
@@ -198,7 +199,7 @@ const HRInterviewApp = () => {
     } else if (ready && !user) {
       setLoading(false)
     }
-  }, [ready, user])
+  }, [ready, user, fetchJobs])
 
   // Update selected job when jobs list changes
   useEffect(() => {
