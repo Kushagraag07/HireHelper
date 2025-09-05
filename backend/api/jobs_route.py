@@ -4,7 +4,7 @@ import re
 import fitz                      # PyMuPDF
 from typing        import Dict, Any, List, Tuple, Optional
 from datetime      import datetime
-from fastapi       import APIRouter, Depends, Form, File, UploadFile, HTTPException, status
+from fastapi       import APIRouter, Depends, Form, File, UploadFile, HTTPException, status, Response
 from models.jobs     import JobSummary, ResumeSummary
 from utils.pdf_parser import extract_pdf_text
 from utils.getuser    import get_current_user
@@ -12,6 +12,7 @@ from utils.llm        import llm_score
 from db.vector_db     import index_resume_chunks, index_job_description_chunks
 from db.database      import fs, job_profiles
 from bson import ObjectId
+import io
 
 router = APIRouter()
 
@@ -281,3 +282,87 @@ async def update_job(
         "updatedFields": list(update_fields.keys()),
         "newScoredResumes": new_scored_resumes,
     }
+
+
+@router.get("/resume/{resume_id}")
+async def view_resume(
+    resume_id: str,
+    current_user: dict = Depends(get_current_user)
+) -> Response:
+    """
+    View a resume file from GridFS.
+    Returns the PDF file for viewing in browser.
+    """
+    try:
+        # Convert string ID to ObjectId
+        file_id = ObjectId(resume_id)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid resume ID")
+
+    try:
+        # Get the file from GridFS
+        grid_out = fs.get(file_id)
+        
+        # Read the file content
+        file_content = grid_out.read()
+        
+        # Get filename for content disposition
+        filename = grid_out.filename or "resume.pdf"
+        
+        # Return the file with appropriate headers for viewing
+        return Response(
+            content=file_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename={filename}",
+                "Cache-Control": "no-cache"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, 
+            f"Resume not found: {str(e)}"
+        )
+
+
+@router.get("/resume/{resume_id}/download")
+async def download_resume(
+    resume_id: str,
+    current_user: dict = Depends(get_current_user)
+) -> Response:
+    """
+    Download a resume file from GridFS.
+    Returns the PDF file for download.
+    """
+    try:
+        # Convert string ID to ObjectId
+        file_id = ObjectId(resume_id)
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid resume ID")
+
+    try:
+        # Get the file from GridFS
+        grid_out = fs.get(file_id)
+        
+        # Read the file content
+        file_content = grid_out.read()
+        
+        # Get filename for content disposition
+        filename = grid_out.filename or "resume.pdf"
+        
+        # Return the file with appropriate headers for download
+        return Response(
+            content=file_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Cache-Control": "no-cache"
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, 
+            f"Resume not found: {str(e)}"
+        )
